@@ -1,0 +1,58 @@
+{
+  "name": "picamera-react-native",
+  "version": "1.0.0",
+  "description": "WebRTC connection for Raspberry Pi Camera",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "react-native": "build/index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TzuHuanTai/picamera-react-native.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TzuHuanTai/picamera-react-native/issues"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf build",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "raspberry",
+    "pi",
+    "webrtc",
+    "camera",
+    "react-native",
+    "p2p"
+  ],
+  "author": "Tzu Huan Tai",
+  "license": "AGPL-3.0-only",
+  "files": [
+    "build/",
+    "LICENSE",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/react": "~18.2.45",
+    "typescript": "~5.3.3",
+    "mqtt": "^5.11.0",
+    "react-native": "^0.74.0",
+    "react-native-webrtc": "^124.0.5"
+  },
+  "peerDependencies": {
+    "mqtt": "^5.11.0",
+    "react-native": ">=0.74.0",
+    "react-native-webrtc": "^124.0.5"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": false
+    },
+    "react-native-webrtc": {
+      "optional": false
+    },
+    "mqtt": {
+      "optional": false
+    }
+  }
+}

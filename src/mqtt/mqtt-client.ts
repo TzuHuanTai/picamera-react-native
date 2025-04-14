@@ -1,4 +1,4 @@
-import mqtt, { MqttClient as MqttLibClient, IClientOptions } from 'mqtt';
+import { Client as MqttLibClient, Message } from 'paho-mqtt';
 import { generateUid } from '../utils/rtc-tools';
 import { IMqttConnectionOptions } from './mqtt-client.interface';
 
@@ -17,41 +17,40 @@ export class MqttClient {
   }
 
   connect = () => {
-    const connectionOptions: IClientOptions = {
-      host: this.options.mqttHost,
-      port: this.options.mqttPort,
-      path: this.options.mqttPath,
-      clientId: this.clientId,
-      username: this.options.mqttUsername,
-      password: this.options.mqttPassword,
-      protocol: this.options.mqttProtocol,
-      keepalive: 20,
-      protocolVersion: 5,
-      clean: true,
-      manualConnect: true,
-      reconnectPeriod: 0,
+    this.client = new MqttLibClient(
+      this.options.mqttHost,
+      this.options.mqttPort,
+      this.options.mqttPath,
+      this.clientId
+    );
+
+    this.client.onMessageArrived = (message) => {
+      this.handleMessage(message.destinationName, message.payloadString);
     };
 
-    this.client = mqtt.connect(connectionOptions);
-    this.attachClientListeners();
-    this.client.reconnect();
-  }
+    this.client.onConnectionLost = (responseObject) => {
+      if (responseObject.errorCode !== 0) {
+        console.log(`MQTT(${this.clientId}) onConnectionLost: ${responseObject.errorMessage}`);
+      } else {
+        console.log(`MQTT(${this.clientId}) disconnected`);
+      }
+    };
 
-  private attachClientListeners() {
-    if (!this.client) return;
+    this.client.connect({
+      onSuccess: () => this.onConnect?.(this),
+      userName: this.options.mqttUsername,
+      password: this.options.mqttPassword,
+      useSSL: this.options.mqttProtocol === 'wss',
+      keepAliveInterval: 20,
+      cleanSession: true,
 
-    this.client.on('connect', () => {
-      console.debug(`MQTT connection (${this.clientId}) established. -> ${this.options.deviceUid}`);
-      this.onConnect?.(this);
     });
-
-    this.client.on('message', (topic, message) => this.handleMessage(topic, message));
   }
 
-  private handleMessage(topic: string, message: Buffer) {
-    console.debug(`Received message on topic: ${topic} -> ${message.toString()}`);
+  private handleMessage(topic: string, message: string) {
+    console.debug(`Received message on topic: ${topic} -> ${message}`);
     const callback = this.subscribedFnMap.get(topic);
-    callback?.(message.toString());
+    callback?.(message);
   }
 
   subscribe = (topic: string, callback: (...args: any[]) => void) => {
@@ -82,20 +81,21 @@ export class MqttClient {
       return;
     }
 
-    const destination = `${this.constructTopic(topic)}/offer`;
-    this.client.publish(destination, message);
+    const msg = new Message(message);
+    msg.destinationName = `${this.constructTopic(topic)}/offer`;
+    this.client.send(msg);
   }
 
   disconnect = () => {
     if (!this.client) return;
 
-    console.debug(`Terminating MQTT connection (${this.clientId}).`);
-    this.client.removeAllListeners();
-    this.client.end(true);
+    if (this.isConnected()) {
+      this.client.disconnect();
+    }
     this.subscribedFnMap.clear();
   }
 
-  isConnected = (): boolean => this.client?.connected ?? false;
+  isConnected = (): boolean => this.client?.isConnected() ?? false;
 
   private constructTopic(topic: string): string {
     return `${this.options.deviceUid}/${topic}/${this.clientId}`;

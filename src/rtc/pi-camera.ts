@@ -26,9 +26,9 @@ export class PiCamera implements IPiCamera {
   onConnectionState?: (state: RTCPeerConnectionState) => void;
   onDatachannel?: (dataChannel: RTCDataChannel) => void;
   onSnapshot?: (base64: string) => void;
-  onStream?: (stream: MediaStream) => void;
-  onMetadata?: ((metadata: VideoMetadata) => void);
-  onVideoDownloaded?: ((file: Blob) => void);
+  onStream?: (stream: MediaStream | undefined) => void;
+  onMetadata?: (metadata: VideoMetadata) => void;
+  onVideoDownloaded?: (file: Blob) => void;
   onTimeout?: () => void;
 
   private options: IPiCameraOptions;
@@ -99,7 +99,7 @@ export class PiCamera implements IPiCamera {
       this.remoteStream.getTracks().forEach(track => { track.stop() });
       this.remoteStream = undefined;
 
-      if (this.onStream && this.remoteStream) {
+      if (this.onStream) {
         this.onStream(this.remoteStream);
       }
     }
@@ -241,7 +241,7 @@ export class PiCamera implements IPiCamera {
           }
         });
 
-        if (this.onStream && this.remoteStream) {
+        if (this.onStream) {
           this.onStream(this.remoteStream);
         }
       });

@@ -38,7 +38,7 @@ export interface IPiCameraEvents {
    *
    * @param stream - The HTML video element where the remote media stream will be rendered.
    */
-  onStream?: (stream: MediaStream) => void;
+  onStream?: (stream: MediaStream | undefined) => void;
 
   /**
    * Emitted after calling the `snapshot()` method. This event emits a base64-encoded image 

@@ -1,11 +1,9 @@
-import { MqttProtocol } from 'mqtt';
-
 export interface IMqttConnectionOptions {
   deviceUid: string;
   mqttHost: string;
   mqttPath: string;
   mqttPort: number;
-  mqttProtocol?: MqttProtocol;
+  mqttProtocol?: 'wss' | 'ws';
   mqttUsername: string;
   mqttPassword: string;
 }

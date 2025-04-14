@@ -25,5 +25,5 @@ npm uninstall picamera-react-native
 # Installation
 
 ```shell
-npm install picamera-react-native react-native-webrtc mqtt
+npm install picamera-react-native react-native-webrtc paho-mqtt
 ```

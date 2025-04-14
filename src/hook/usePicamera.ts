@@ -11,7 +11,7 @@ export const usePiCamera = ({
   options,
   ...callbacks
 }: UseCameraPlayerProps) => {
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream>();
   const clientRef = useRef<PiCamera | null>(null);
 
   useEffect(() => {

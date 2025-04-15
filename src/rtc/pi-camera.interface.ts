@@ -34,6 +34,13 @@ export interface IPiCameraEvents {
   onDatachannel?: (dataChannel: RTCDataChannel | any) => void;
 
   /**
+   * If any data transfer by datachannel, the on progress will give the received/total info.
+   * @param received 
+   * @param total 
+   */
+  onProgress?: (received: number, total: number) => void;
+
+  /**
    * Attaches the remote media stream to the specified media element for playback.
    *
    * @param stream - The HTML video element where the remote media stream will be rendered.
@@ -60,7 +67,7 @@ export interface IPiCameraEvents {
    * @param file 
    * @returns 
    */
-  onVideoDownloaded?: (file: Blob) => void;
+  onVideoDownloaded?: (progress: number, file: Uint8Array) => void;
 
   /**
    * Emitted when the P2P connection cannot be established within the allotted time. 

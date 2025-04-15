@@ -27,7 +27,8 @@ export class PiCamera implements IPiCamera {
   onSnapshot?: (base64: string) => void;
   onStream?: (stream: MediaStream | undefined) => void;
   onMetadata?: (metadata: VideoMetadata) => void;
-  onVideoDownloaded?: (file: Blob) => void;
+  onProgress?: (received: number, total: number) => void;
+  onVideoDownloaded?: (progress: number, file: Uint8Array) => void;
   onTimeout?: () => void;
 
   private options: IPiCameraOptions;
@@ -79,6 +80,10 @@ export class PiCamera implements IPiCamera {
 
   terminate = () => {
     clearTimeout(this.rtcTimer);
+
+    this.snapshotReceiver.reset();
+    this.metadataReceiver.reset();
+    this.recordReceiver.reset();
 
     if (this.dataChannel) {
       if (this.dataChannel.readyState === 'open') {
@@ -146,7 +151,7 @@ export class PiCamera implements IPiCamera {
 
   fetchRecordedVideo(path: string): void {
     if (this.onVideoDownloaded && this.dataChannel?.readyState === 'open') {
-      const command = new RtcMessage(CommandType.RECORD, path);
+      const command = new RtcMessage(CommandType.RECORDING, path);
       this.dataChannel.send(command.ToString());
     }
   }
@@ -276,7 +281,7 @@ export class PiCamera implements IPiCamera {
         case CommandType.METADATA:
           this.metadataReceiver.receiveData(body);
           break;
-        case CommandType.RECORD:
+        case CommandType.RECORDING:
           this.recordReceiver.receiveData(body);
           break;
       }
@@ -306,25 +311,35 @@ export class PiCamera implements IPiCamera {
     return peer;
   }
 
-  private snapshotReceiver = new DataChannelReceiver((body) => {
-    if (this.onSnapshot) {
+  private snapshotReceiver = new DataChannelReceiver((received, body) => {
+    if (this.onProgress) {
+      this.onProgress(received, body.length);
+    }
+
+    if (received === body.length && this.onSnapshot) {
       this.onSnapshot("data:image/jpeg;base64," + arrayBufferToBase64(body));
     }
   });
 
-  private metadataReceiver = new DataChannelReceiver((body) => {
-    let bodyStr = arrayBufferToString(body);
-    let parsedBody = JSON.parse(bodyStr) as VideoMetadata;
+  private metadataReceiver = new DataChannelReceiver((received, body) => {
+    if (this.onProgress) {
+      this.onProgress(received, body.length);
+    }
 
-    if (this.onMetadata) {
+    if (received === body.length && this.onMetadata) {
+      let bodyStr = arrayBufferToString(body);
+      let parsedBody = JSON.parse(bodyStr) as VideoMetadata;
       this.onMetadata(parsedBody);
     }
   });
 
-  private recordReceiver = new DataChannelReceiver((body) => {
-    if (this.onVideoDownloaded) {
-      const blob = new Blob([body], { type: 'video/mp4' });
-      this.onVideoDownloaded(blob);
+  private recordReceiver = new DataChannelReceiver((received, body) => {
+    if (this.onProgress) {
+      this.onProgress(received, body.length);
+    }
+
+    if (received === body.length && this.onVideoDownloaded) {
+      this.onVideoDownloaded(received, body);
     }
   });
 

@@ -11,7 +11,6 @@ import { DEFAULT_TIMEOUT, MQTT_ICE_TOPIC, MQTT_SDP_TOPIC } from '../constants';
 import { CameraCtlMessage, MetaCmdMessage, RtcMessage, VideoMetadata } from './message';
 import { IPiCamera, IPiCameraOptions } from './pi-camera.interface';
 import { CameraPropertyType, CameraPropertyValue } from './camera-property';
-import { addWatermarkToImage } from '../utils/watermark';
 import { DataChannelReceiver } from './datachannel-receiver';
 import {
   RTCPeerConnection,
@@ -308,14 +307,9 @@ export class PiCamera implements IPiCamera {
   }
 
   private snapshotReceiver = new DataChannelReceiver((body) => {
-    addWatermarkToImage(
-      "data:image/jpeg;base64," + arrayBufferToBase64(body),
-      this.options.credits ? 'github.com/TzuHuanTai' : ''
-    ).then(base64Image => {
-      if (this.onSnapshot) {
-        this.onSnapshot(base64Image);
-      }
-    });
+    if (this.onSnapshot) {
+      this.onSnapshot("data:image/jpeg;base64," + arrayBufferToBase64(body));
+    }
   });
 
   private metadataReceiver = new DataChannelReceiver((body) => {

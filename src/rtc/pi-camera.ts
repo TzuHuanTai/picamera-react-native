@@ -27,8 +27,8 @@ export class PiCamera implements IPiCamera {
   onSnapshot?: (base64: string) => void;
   onStream?: (stream: MediaStream | undefined) => void;
   onMetadata?: (metadata: VideoMetadata) => void;
-  onProgress?: (received: number, total: number) => void;
-  onVideoDownloaded?: (progress: number, file: Uint8Array) => void;
+  onProgress?: (received: number, total: number, type: CommandType) => void;
+  onVideoDownloaded?: (file: Uint8Array) => void;
   onTimeout?: () => void;
 
   private options: IPiCameraOptions;
@@ -83,7 +83,7 @@ export class PiCamera implements IPiCamera {
 
     this.snapshotReceiver.reset();
     this.metadataReceiver.reset();
-    this.recordReceiver.reset();
+    this.recordingReceiver.reset();
 
     if (this.dataChannel) {
       if (this.dataChannel.readyState === 'open') {
@@ -282,7 +282,7 @@ export class PiCamera implements IPiCamera {
           this.metadataReceiver.receiveData(body);
           break;
         case CommandType.RECORDING:
-          this.recordReceiver.receiveData(body);
+          this.recordingReceiver.receiveData(body);
           break;
       }
     });
@@ -313,7 +313,7 @@ export class PiCamera implements IPiCamera {
 
   private snapshotReceiver = new DataChannelReceiver((received, body) => {
     if (this.onProgress) {
-      this.onProgress(received, body.length);
+      this.onProgress(received, body.length, CommandType.SNAPSHOT);
     }
 
     if (received === body.length && this.onSnapshot) {
@@ -323,7 +323,7 @@ export class PiCamera implements IPiCamera {
 
   private metadataReceiver = new DataChannelReceiver((received, body) => {
     if (this.onProgress) {
-      this.onProgress(received, body.length);
+      this.onProgress(received, body.length, CommandType.METADATA);
     }
 
     if (received === body.length && this.onMetadata) {
@@ -333,13 +333,13 @@ export class PiCamera implements IPiCamera {
     }
   });
 
-  private recordReceiver = new DataChannelReceiver((received, body) => {
+  private recordingReceiver = new DataChannelReceiver((received, body) => {
     if (this.onProgress) {
-      this.onProgress(received, body.length);
+      this.onProgress(received, body.length, CommandType.RECORDING);
     }
 
     if (received === body.length && this.onVideoDownloaded) {
-      this.onVideoDownloaded(received, body);
+      this.onVideoDownloaded(body);
     }
   });
 

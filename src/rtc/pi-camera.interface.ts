@@ -4,6 +4,7 @@ import { CameraPropertyType, CameraPropertyValue } from './camera-property';
 import { IMqttConnectionOptions } from '../mqtt/mqtt-client.interface';
 import { VideoMetadata } from './message';
 import { MediaStream } from 'react-native-webrtc';
+import { CommandType } from './command';
 
 export interface IPiCameraOptions extends IMqttConnectionOptions {
   stunUrls: string[];
@@ -38,7 +39,7 @@ export interface IPiCameraEvents {
    * @param received 
    * @param total 
    */
-  onProgress?: (received: number, total: number) => void;
+  onProgress?: (received: number, total: number, type: CommandType) => void;
 
   /**
    * Attaches the remote media stream to the specified media element for playback.
@@ -67,7 +68,7 @@ export interface IPiCameraEvents {
    * @param file 
    * @returns 
    */
-  onVideoDownloaded?: (progress: number, file: Uint8Array) => void;
+  onVideoDownloaded?: (file: Uint8Array) => void;
 
   /**
    * Emitted when the P2P connection cannot be established within the allotted time. 

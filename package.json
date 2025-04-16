@@ -1,6 +1,5 @@
 {
   "name": "picamera-react-native",
-  "version": "1.0.0",
   "description": "WebRTC connection for Raspberry Pi Camera",
   "main": "build/index.js",
   "types": "build/index.d.ts",

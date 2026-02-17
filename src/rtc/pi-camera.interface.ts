@@ -1,10 +1,8 @@
-
 import { CodecType } from '../utils/rtc-tools';
-import { CameraPropertyType, CameraPropertyValue } from './camera-property';
+import { CameraControlId, CameraControlValue } from './camera-property';
 import { IMqttConnectionOptions } from '../mqtt/mqtt-client.interface';
-import { VideoMetadata } from './message';
 import { MediaStream } from 'react-native-webrtc';
-import { CommandType } from './command';
+import { CommandType, QueryFileResponse } from '../proto/packet';
 
 export interface IPiCameraOptions extends IMqttConnectionOptions {
   stunUrls: string[];
@@ -13,6 +11,7 @@ export interface IPiCameraOptions extends IMqttConnectionOptions {
   turnPassword?: string;
   timeout?: number;
   datachannelOnly?: boolean;
+  ipcMode?: 'lossy' | 'reliable';
   isMicOn?: boolean;
   isSpeakerOn?: boolean;
   credits?: boolean;
@@ -30,9 +29,9 @@ export interface IPiCameraEvents {
   /**
    * Emitted when the data channel is successfully opened.
    *
-   * @param dataChannel - The opened RTCDataChannel instance for data communication.
+   * @param id - The Id of the opened RTCDataChannel (0 = Command, 1 = Lossy, 2 = Reliable).
    */
-  onDatachannel?: (dataChannel: RTCDataChannel | any) => void;
+  onDatachannel?: (id: number) => void;
 
   /**
    * If any data transfer by datachannel, the on progress will give the received/total info.
@@ -57,11 +56,11 @@ export interface IPiCameraEvents {
   onSnapshot?: (base64: string) => void;
 
   /**
-   * Emitted when the metadata of a recording file is retrieved.
+   * Emitted when the video file list is retrieved.
    *
-   * @param metadata - The metadata of the recording file.
+   * @param res - The file list response.
    */
-  onMetadata?: (metadata: VideoMetadata) => void;
+  onVideoListLoaded?: (res: QueryFileResponse) => void;
 
   /**
    * Emitted when a video file is successfully downloaded from the server.
@@ -69,6 +68,13 @@ export interface IPiCameraEvents {
    * @returns 
    */
   onVideoDownloaded?: (file: Uint8Array) => void;
+
+  /**
+   * Emitted when a IPC message is received.
+   * 
+   * @param data - The binary data received from the remote peer.
+   */
+  onMessage?: (data: Uint8Array) => void;
 
   /**
    * Emitted when the P2P connection cannot be established within the allotted time. 
@@ -94,7 +100,7 @@ export interface IPiCamera extends IPiCameraEvents {
   getStatus(): RTCPeerConnectionState;
 
   /**
-  * Retrieves metadata of recording files.
+  * Retrieves the list of video files.
   * - If called without arguments, returns metadata of the latest recorded file.
   * - If provided with a file path, returns metadata of up to 8 older recordings before the given file.
   * - If provided with a date, returns metadata of the closest recorded file to that time.
@@ -102,23 +108,23 @@ export interface IPiCamera extends IPiCameraEvents {
   * @param path - The path to an existing recorded file; retrieves metadata of up to 8 older recordings before it.
   * @param time - A specific date/time; retrieves metadata of the closest recorded file.
   */
-  getRecordingMetadata(): void;
-  getRecordingMetadata(path: string): void;
-  getRecordingMetadata(time: Date): void;
+  fetchVideoList(): void;
+  fetchVideoList(path: string): void;
+  fetchVideoList(time: Date): void;
 
   /**
    * Requests a video file from the server.
    * 
    * @param path - The path to the video file.
    */
-  fetchRecordedVideo(path: string): void;
+  downloadVideoFile(path: string): void;
 
-  /** 
-   * Sets the camera property, such as 3A or so.
-   * @param key Camera property type
-   * @param value Value of the camera property
+  /**
+   * Sets the camera control, such as 3A or so.
+   * @param key Camera control type
+   * @param value Value of the camera control
    */
-  setCameraProperty(key: CameraPropertyType, value: CameraPropertyValue): void;
+  setCameraControl(key: CameraControlId, value: CameraControlValue): void;
 
   /**
    * Requests a snapshot image from the server.
@@ -126,6 +132,20 @@ export interface IPiCamera extends IPiCameraEvents {
    * @param quality - The range from `0` to `100`, determines the image quality. The default value is `30`.
    */
   snapshot(quality?: number): void;
+
+  /**
+   * Send a text message to the server for IPC.
+   * 
+   * @param msg - The custom contents.
+   */
+  sendText(msg: string): void;
+
+  /**
+   * Send a binary data to the server for IPC.
+   * 
+   * @param data - The custom contents.
+   */
+  sendData(data: Uint8Array): void;
 
   /**
    * Toggles the **local** audio stream on or off. If an argument is provided, it will force the state to the specified value, otherwise, the current state will be toggled.

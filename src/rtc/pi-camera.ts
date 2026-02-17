@@ -1,16 +1,13 @@
 import { MqttClient } from '../mqtt/mqtt-client';
 import {
   arrayBufferToBase64,
-  arrayBufferToString,
   generateUid,
   keepOnlyCodec,
   padZero
 } from '../utils/rtc-tools';
-import { CommandType, MetadataCommand } from './command';
 import { DEFAULT_TIMEOUT, MQTT_ICE_TOPIC, MQTT_SDP_TOPIC } from '../constants';
-import { CameraCtlMessage, MetaCmdMessage, RtcMessage, VideoMetadata } from './message';
 import { IPiCamera, IPiCameraOptions } from './pi-camera.interface';
-import { CameraPropertyType, CameraPropertyValue } from './camera-property';
+import { CameraControlId, CameraControlValue } from './camera-property';
 import { DataChannelReceiver } from './datachannel-receiver';
 import {
   RTCPeerConnection,
@@ -20,25 +17,46 @@ import {
   MediaStream,
 } from 'react-native-webrtc';
 import RTCDataChannel from 'react-native-webrtc/lib/typescript/RTCDataChannel';
+import {
+  CommandType,
+  DisconnectRequest,
+  Packet,
+  QueryFileRequest,
+  QueryFileType,
+  QueryFileResponse
+} from '../proto/packet';
+
+enum ChannelId {
+  Command,
+  Lossy,
+  Reliable
+}
 
 export class PiCamera implements IPiCamera {
   onConnectionState?: (state: RTCPeerConnectionState) => void;
-  onDatachannel?: (dataChannel: RTCDataChannel) => void;
+  onDatachannel?: (id: number) => void;
   onSnapshot?: (base64: string) => void;
   onStream?: (stream: MediaStream | undefined) => void;
-  onMetadata?: (metadata: VideoMetadata) => void;
+  onVideoListLoaded?: (res: QueryFileResponse) => void;
   onProgress?: (received: number, total: number, type: CommandType) => void;
   onVideoDownloaded?: (file: Uint8Array) => void;
+  onMessage?: (data: Uint8Array) => void;
   onTimeout?: () => void;
 
   private options: IPiCameraOptions;
   private mqttClient?: MqttClient;
   private rtcTimer?: NodeJS.Timeout;
   private rtcPeer?: RTCPeerConnection;
-  private dataChannel?: RTCDataChannel;
+  private cmdChannel?: RTCDataChannel;
+  private ipcChannel?: RTCDataChannel;
   private localStream?: MediaStream;
   private remoteStream?: MediaStream;
   private pendingIceCandidates: RTCIceCandidate[] = [];
+
+  private snapshotReceiver?: DataChannelReceiver;
+  private queryFileReceiver?: DataChannelReceiver;
+  private fileReceiver?: DataChannelReceiver;
+  private customReceiver?: DataChannelReceiver;
 
   constructor(options: IPiCameraOptions) {
     this.options = this.initializeOptions(options);
@@ -81,17 +99,27 @@ export class PiCamera implements IPiCamera {
   terminate = () => {
     clearTimeout(this.rtcTimer);
 
-    this.snapshotReceiver.reset();
-    this.metadataReceiver.reset();
-    this.recordingReceiver.reset();
+    this.snapshotReceiver?.reset();
+    this.queryFileReceiver?.reset();
+    this.fileReceiver?.reset();
+    this.customReceiver?.reset();
 
-    if (this.dataChannel) {
-      if (this.dataChannel.readyState === 'open') {
-        const command = new RtcMessage(CommandType.CONNECT, "false");
-        this.dataChannel.send(command.ToString());
+    if (this.cmdChannel) {
+      if (this.cmdChannel.readyState === 'open') {
+        const packet = Packet.create({
+          type: CommandType.DISCONNECT,
+          disconnectionRequest: DisconnectRequest.create()
+        });
+        const binary = Packet.encode(packet).finish();
+        this.cmdChannel.send(binary);
       }
-      this.dataChannel.close();
-      this.dataChannel = undefined;
+      this.cmdChannel.close();
+      this.cmdChannel = undefined;
+    }
+
+    if (this.ipcChannel) {
+      this.ipcChannel.close();
+      this.ipcChannel = undefined;
     }
 
     if (this.localStream) {
@@ -130,45 +158,83 @@ export class PiCamera implements IPiCamera {
     return this.rtcPeer.connectionState;
   }
 
-  getRecordingMetadata(param?: string | Date): void {
-    if (this.onMetadata && this.dataChannel?.readyState === 'open') {
-      let metaCmd: MetaCmdMessage;
+  fetchVideoList(param?: string | Date): void {
+    if (this.onVideoListLoaded && this.cmdChannel?.readyState === 'open') {
+      let queryRequest = QueryFileRequest.create();
 
       if (param === undefined) {
-        metaCmd = new MetaCmdMessage(MetadataCommand.LATEST, "");
+        queryRequest.type = QueryFileType.LATEST_FILE;
       } else if (typeof param === "string") {
-        metaCmd = new MetaCmdMessage(MetadataCommand.OLDER, param);
+        queryRequest.type = QueryFileType.BEFORE_FILE;
+        queryRequest.parameter = param;
       } else {
         const formattedDate = `${param.getFullYear()}${padZero(param.getMonth() + 1)}${padZero(param.getDate())}` +
           "_" + `${padZero(param.getHours())}${padZero(param.getMinutes())}${padZero(param.getSeconds())}`;
-        metaCmd = new MetaCmdMessage(MetadataCommand.SPECIFIC_TIME, formattedDate);
+        queryRequest.type = QueryFileType.BEFORE_TIME;
+        queryRequest.parameter = formattedDate;
       }
 
-      const command = new RtcMessage(CommandType.METADATA, metaCmd.ToString());
-      this.dataChannel.send(command.ToString());
+      const binary = Packet.encode(Packet.create({
+        type: CommandType.QUERY_FILE,
+        queryFileRequest: queryRequest
+      })).finish();
+      this.cmdChannel.send(binary);
     }
   }
 
-  fetchRecordedVideo(path: string): void {
-    if (this.onVideoDownloaded && this.dataChannel?.readyState === 'open') {
-      const command = new RtcMessage(CommandType.RECORDING, path);
-      this.dataChannel.send(command.ToString());
+  downloadVideoFile(path: string): void {
+    if (this.onVideoDownloaded && this.cmdChannel?.readyState === 'open') {
+      const command = Packet.create({
+        type: CommandType.TRANSFER_FILE,
+        transferFileRequest: {
+          filepath: path
+        }
+      });
+      const binary = Packet.encode(command).finish();
+      this.cmdChannel.send(binary);
     }
   }
 
-  setCameraProperty = (key: CameraPropertyType, value: CameraPropertyValue) => {
-    if (this.dataChannel?.readyState === 'open') {
-      const ctl = new CameraCtlMessage(key, value);
-      const command = new RtcMessage(CommandType.CAMERA_CONTROL, JSON.stringify(ctl));
-      this.dataChannel.send(command.ToString());
+  setCameraControl = (key: CameraControlId, value: CameraControlValue) => {
+    if (this.cmdChannel?.readyState === 'open') {
+      const command = Packet.create({
+        type: CommandType.CONTROL_CAMERA,
+        controlCameraRequest: {
+          id: key,
+          value: value as number,
+        }
+      });
+      const binary = Packet.encode(command).finish();
+      this.cmdChannel.send(binary);
     }
   }
 
   snapshot = (quality: number = 30) => {
-    if (this.onSnapshot && this.dataChannel?.readyState === 'open') {
+    if (this.onSnapshot && this.cmdChannel?.readyState === 'open') {
       quality = Math.max(0, Math.min(quality, 100));
-      const command = new RtcMessage(CommandType.SNAPSHOT, String(quality));
-      this.dataChannel.send(command.ToString());
+      const command = Packet.create({
+        type: CommandType.TAKE_SNAPSHOT,
+        takeSnapshotRequest: { quality: quality }
+      });
+      const binary = Packet.encode(command).finish();
+
+      this.cmdChannel.send(binary);
+    }
+  }
+
+  sendText = (msg: string) => {
+    this.sendData(new TextEncoder().encode(msg));
+  }
+
+  sendData = (data: Uint8Array) => {
+    if (this.ipcChannel?.readyState === 'open') {
+      const custom_command = Packet.create({
+        type: CommandType.CUSTOM,
+        customCommand: data
+      });
+
+      const binary = Packet.encode(custom_command).finish();
+      this.ipcChannel.send(binary);
     }
   }
 
@@ -257,34 +323,65 @@ export class PiCamera implements IPiCamera {
       }
     });
 
-    this.dataChannel = peer.createDataChannel(generateUid(10), {
+    // Create Command data channel
+    this.cmdChannel = peer.createDataChannel(generateUid(10), {
       negotiated: true,
       ordered: true,
-      id: 0,
+      id: ChannelId.Command,
     });
-    this.dataChannel.binaryType = "arraybuffer";
-    this.dataChannel.addEventListener("open", () => {
-      if (this.onDatachannel && this.dataChannel) {
-        this.onDatachannel(this.dataChannel);
+    this.cmdChannel.binaryType = "arraybuffer";
+    this.cmdChannel.addEventListener("open", () => {
+      if (this.onDatachannel) {
+        this.onDatachannel(ChannelId.Command);
+      }
+    });
+    this.cmdChannel.addEventListener("message", (e: any) => this.onDataChannelMessage(e));
+
+    // Create IPC data channel if needed
+    if (this.options.ipcMode) {
+      const ipcChannelId = this.options.ipcMode === 'lossy' ? ChannelId.Lossy : ChannelId.Reliable;
+      const options: RTCDataChannelInit = {
+        id: ipcChannelId,
+        ordered: true,
+        negotiated: true,
+      };
+
+      if (this.options.ipcMode === 'lossy') {
+        options.maxRetransmits = 0;
+      }
+
+      this.ipcChannel = peer.createDataChannel(generateUid(10), options);
+      this.ipcChannel.binaryType = "arraybuffer";
+      this.ipcChannel.addEventListener("open", () => {
+        if (this.onDatachannel) {
+          this.onDatachannel(ipcChannelId);
+        }
+      });
+      this.ipcChannel.addEventListener("message", (e: any) => this.onDataChannelMessage(e));
+    }
+
+    // Create receivers
+    this.snapshotReceiver = new DataChannelReceiver({
+      onProgress: (received, total) => this.onProgress?.(received, total, CommandType.TAKE_SNAPSHOT),
+      onComplete: (body) => this.onSnapshot?.("data:image/jpeg;base64," + arrayBufferToBase64(body))
+    });
+
+    this.queryFileReceiver = new DataChannelReceiver({
+      onProgress: (received, total) => this.onProgress?.(received, total, CommandType.QUERY_FILE),
+      onComplete: (body) => {
+        const decoded = QueryFileResponse.decode(body);
+        this.onVideoListLoaded?.(decoded);
       }
     });
 
-    this.dataChannel.addEventListener("message", e => {
-      const packet = new Uint8Array(e.data as ArrayBuffer);
-      const header = packet[0];
-      const body = packet.slice(1);
+    this.fileReceiver = new DataChannelReceiver({
+      onProgress: (received, total) => this.onProgress?.(received, total, CommandType.TRANSFER_FILE),
+      onComplete: (body) => this.onVideoDownloaded?.(body)
+    });
 
-      switch (header) {
-        case CommandType.SNAPSHOT:
-          this.snapshotReceiver.receiveData(body);
-          break;
-        case CommandType.METADATA:
-          this.metadataReceiver.receiveData(body);
-          break;
-        case CommandType.RECORDING:
-          this.recordingReceiver.receiveData(body);
-          break;
-      }
+    this.customReceiver = new DataChannelReceiver({
+      onProgress: (received, total) => this.onProgress?.(received, total, CommandType.CUSTOM),
+      onComplete: (body) => this.onMessage?.(body)
     });
 
     peer.addEventListener("connectionstatechange", () => {
@@ -311,37 +408,27 @@ export class PiCamera implements IPiCamera {
     return peer;
   }
 
-  private snapshotReceiver = new DataChannelReceiver((received, body) => {
-    if (this.onProgress) {
-      this.onProgress(received, body.length, CommandType.SNAPSHOT);
-    }
 
-    if (received === body.length && this.onSnapshot) {
-      this.onSnapshot("data:image/jpeg;base64," + arrayBufferToBase64(body));
-    }
-  });
+  private onDataChannelMessage = (e: { data: ArrayBuffer }) => {
+    const data = new Uint8Array(e.data);
+    const packet = Packet.decode(data);
 
-  private metadataReceiver = new DataChannelReceiver((received, body) => {
-    if (this.onProgress) {
-      this.onProgress(received, body.length, CommandType.METADATA);
+    switch (packet.type) {
+      case CommandType.TAKE_SNAPSHOT:
+        this.snapshotReceiver?.receiveData(packet);
+        break;
+      case CommandType.QUERY_FILE:
+        this.queryFileReceiver?.receiveData(packet);
+        break;
+      case CommandType.TRANSFER_FILE:
+        this.fileReceiver?.receiveData(packet);
+        break;
+      case CommandType.CUSTOM:
+        this.customReceiver?.receiveData(packet);
+        break;
     }
+  }
 
-    if (received === body.length && this.onMetadata) {
-      let bodyStr = arrayBufferToString(body);
-      let parsedBody = JSON.parse(bodyStr) as VideoMetadata;
-      this.onMetadata(parsedBody);
-    }
-  });
-
-  private recordingReceiver = new DataChannelReceiver((received, body) => {
-    if (this.onProgress) {
-      this.onProgress(received, body.length, CommandType.RECORDING);
-    }
-
-    if (received === body.length && this.onVideoDownloaded) {
-      this.onVideoDownloaded(body);
-    }
-  });
 
   private handleSdpMessage = (message: string) => {
     const sdp = JSON.parse(message) as RTCSessionDescription;

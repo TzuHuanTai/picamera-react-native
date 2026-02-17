@@ -19,10 +19,12 @@ export const usePiCamera = ({
     client.onStream = setRemoteStream;
     client.onConnectionState = callbacks.onConnectionState;
     client.onDatachannel = callbacks.onDatachannel;
-    client.onMetadata = callbacks.onMetadata;
+    client.onVideoListLoaded = callbacks.onVideoListLoaded;
     client.onSnapshot = callbacks.onSnapshot;
     client.onTimeout = callbacks.onTimeout;
     client.onVideoDownloaded = callbacks.onVideoDownloaded;
+    client.onProgress = callbacks.onProgress;
+    client.onMessage = callbacks.onMessage;
 
     client.connect();
     clientRef.current = client;

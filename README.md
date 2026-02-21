@@ -12,6 +12,9 @@ npm install picamera-react-native react-native-webrtc paho-mqtt
 ```
 
 # Example
+
+See [picamera.js](https://www.npmjs.com/package/picamera.js) for details. The API design is the same.
+
 ```tsx
 import { useEffect, useRef, useState } from 'react';
 import { RTCView, MediaStream } from 'react-native-webrtc';

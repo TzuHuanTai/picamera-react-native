@@ -23,7 +23,8 @@ import {
   Packet,
   QueryFileRequest,
   QueryFileType,
-  QueryFileResponse
+  QueryFileResponse,
+  RecordingResponse
 } from '../proto/packet';
 
 enum ChannelId {
@@ -41,6 +42,7 @@ export class PiCamera implements IPiCamera {
   onProgress?: (received: number, total: number, type: CommandType) => void;
   onVideoDownloaded?: (file: Uint8Array) => void;
   onMessage?: (data: Uint8Array) => void;
+  onRecording?: (res: RecordingResponse) => void;
   onTimeout?: () => void;
 
   private options: IPiCameraOptions;
@@ -238,6 +240,22 @@ export class PiCamera implements IPiCamera {
     }
   }
 
+  startRecording = () => {
+    if (this.cmdChannel?.readyState === 'open') {
+      const command = Packet.create({ type: CommandType.START_RECORDING });
+      const binary = Packet.encode(command).finish();
+      this.cmdChannel.send(binary);
+    }
+  }
+
+  stopRecording = () => {
+    if (this.cmdChannel?.readyState === 'open') {
+      const command = Packet.create({ type: CommandType.STOP_RECORDING });
+      const binary = Packet.encode(command).finish();
+      this.cmdChannel.send(binary);
+    }
+  }
+
   toggleMic = (enabled: boolean = !this.options.isMicOn) => {
     this.options.isMicOn = enabled;
     this.toggleTrack(this.options.isMicOn, this.localStream);
@@ -422,6 +440,12 @@ export class PiCamera implements IPiCamera {
         break;
       case CommandType.TRANSFER_FILE:
         this.fileReceiver?.receiveData(packet);
+        break;
+      case CommandType.START_RECORDING:
+      case CommandType.STOP_RECORDING:
+        if (packet.recordingResponse) {
+          this.onRecording?.(packet.recordingResponse);
+        }
         break;
       case CommandType.CUSTOM:
         this.customReceiver?.receiveData(packet);

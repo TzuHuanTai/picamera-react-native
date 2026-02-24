@@ -2,7 +2,7 @@ import { CodecType } from '../utils/rtc-tools';
 import { CameraControlId, CameraControlValue } from './camera-property';
 import { IMqttConnectionOptions } from '../mqtt/mqtt-client.interface';
 import { MediaStream } from 'react-native-webrtc';
-import { CommandType, QueryFileResponse } from '../proto/packet';
+import { CommandType, QueryFileResponse, RecordingResponse } from '../proto/packet';
 
 export interface IPiCameraOptions extends IMqttConnectionOptions {
   stunUrls: string[];
@@ -77,6 +77,14 @@ export interface IPiCameraEvents {
   onMessage?: (data: Uint8Array) => void;
 
   /**
+   * Emitted when the server responds to a `startRecording()` or `stopRecording()` command.
+   *
+   * @param res - `isRecording` indicates the current recording state; `filepath` is the
+   *              active recording file path (empty string when recording is stopped).
+   */
+  onRecording?: (res: RecordingResponse) => void;
+
+  /**
    * Emitted when the P2P connection cannot be established within the allotted time. 
    * Automatically triggers the `terminate()` function.
    */
@@ -146,6 +154,18 @@ export interface IPiCamera extends IPiCameraEvents {
    * @param data - The custom contents.
    */
   sendData(data: Uint8Array): void;
+
+  /**
+   * Sends a `START_RECORDING` command to the server.
+   * The server's response will be delivered via `onRecording`.
+   */
+  startRecording(): void;
+
+  /**
+   * Sends a `STOP_RECORDING` command to the server.
+   * The server's response will be delivered via `onRecording`.
+   */
+  stopRecording(): void;
 
   /**
    * Toggles the **local** audio stream on or off. If an argument is provided, it will force the state to the specified value, otherwise, the current state will be toggled.

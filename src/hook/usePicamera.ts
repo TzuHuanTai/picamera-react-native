@@ -25,6 +25,7 @@ export const usePiCamera = ({
     client.onVideoDownloaded = callbacks.onVideoDownloaded;
     client.onProgress = callbacks.onProgress;
     client.onMessage = callbacks.onMessage;
+    client.onRecording = callbacks.onRecording;
 
     client.connect();
     clientRef.current = client;
